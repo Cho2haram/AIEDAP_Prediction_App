@@ -5,23 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
+import plotly.graph_objects as go
 
-# ============================================================
-# 한글 폰트 설정 (Streamlit Cloud용)
-# ============================================================
-def set_korean_font():
-    # NanumGothic 설치 경로 탐색
-    font_paths = fm.findSystemFonts(fontpaths=None, fontext='ttf')
-    nanum = [f for f in font_paths if 'Nanum' in f or 'nanum' in f]
-    if nanum:
-        fm.fontManager.addfont(nanum[0])
-        prop = fm.FontProperties(fname=nanum[0])
-        plt.rcParams['font.family'] = prop.get_name()
-    else:
-        # 폰트 없으면 영문 축약 레이블 사용 (fallback)
-        plt.rcParams['font.family'] = 'DejaVu Sans'
-
-set_korean_font()
 
 # ============================================================
 # 기본 설정
@@ -247,21 +232,18 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
     values = list(comp_scores.values())
     colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-    bars = ax.bar(short_labels, values, color=colors, edgecolor='white')
-    ax.set_ylim(1, 5.5)
-    ax.axhline(3.5, color='gray', linestyle='--', linewidth=1, label='기준선 (3.5)')
-    ax.set_ylabel('Score')
-    ax.set_title('Competency Profile')
-    ax.set_xticklabels(short_labels, rotation=30, ha='right', fontsize=9)
-    ax.legend()
-
-    for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-                f'{val:.2f}', ha='center', va='bottom', fontsize=9)
-
-    plt.tight_layout()
-    st.pyplot(fig)
+    fig = go.Figure(go.Bar(
+    x=short_labels,
+    y=values,
+    marker_color=colors,
+    text=[f'{v:.2f}' for v in values],
+    textposition='outside',
+))
+fig.add_hline(y=3.5, line_dash='dash', line_color='gray',
+              annotation_text='기준선 (3.5)', annotation_position='top right')
+fig.update_layout(
+    title='하위역량별 점수 프로파일',
+    yaxis=dict(range=[1, 5.8], title
 
     # 역량명 범례 (텍스트로 보완)
     st.markdown("**역량 범례**")

@@ -224,7 +224,7 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
     st.subheader("🎯 진단 결과")
     
     if name:
-    st.markdown(f"**{name}** 선생님의 진단 결과입니다.")
+        st.markdown(f"**{name}** 선생님의 진단 결과입니다.")
 
     col1, col2 = st.columns([1, 2])
     with col1:

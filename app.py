@@ -145,7 +145,7 @@ type_desc = {
 recommendations = {
     '실천중심형': [
         ('AI 디지털 윤리 기초 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
-        ('AI 활용 개인정보 보호 실천 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE),
+        ('AI 활용 개인정보 보호 실천 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
         ('AI 디지털 윤리 사례 탐구 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
     ],
     '균형형': [

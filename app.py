@@ -2,18 +2,14 @@ import streamlit as st
 import joblib
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import os
 import plotly.graph_objects as go
-
 
 # ============================================================
 # 기본 설정
 # ============================================================
 st.set_page_config(
-    page_title="내 AI 디지털역량 유형 진단해보기",
-    page_icon="🤖",
+    page_title="AI 디지털역량 유형 진단",
+    page_icon="🎓",
     layout="centered"
 )
 
@@ -93,18 +89,6 @@ subcomp_items = {
     },
 }
 
-# 그래프용 축약 레이블 (한글 폰트 없을 때 대비)
-comp_short_labels = {
-    '①기초-사회-교육이해': '①기초이해',
-    '②AI윤리실천':         '②AI윤리',
-    '③교육과정-개별화설계': '③교육설계',
-    '④평가설계-기술선정':   '④평가기술',
-    '⑤매체활용':            '⑤매체활용',
-    '⑥기술진단-데이터':     '⑥기술진단',
-    '⑦평가해석-피드백':     '⑦평가피드백',
-    '⑧개인정보-저작권':     '⑧개인정보',
-}
-
 all_items = [
     'A1','A2','A3','B1','B2','B3','C1','C2','C3',
     'D1','D2','D3',
@@ -124,14 +108,12 @@ type_desc = {
     '이해중심형': 'AI 윤리 및 개인정보·저작권 이해 역량이 상대적으로 강하나 교육과정 설계, 평가, 매체 활용 등 실천 역량 강화가 필요한 유형입니다.',
 }
 
-# ============================================================
-# 연수 추천 목록 (이름, URL 쌍으로 구성 - 나중에 수정)
-# ============================================================
+# 연수 추천 목록 (이름, URL) - 실제 URL로 교체하세요
 recommendations = {
     '실천중심형': [
-        ('AI 디지털 윤리 기초 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
-        ('AI 활용 개인정보 보호 실천 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
-        ('AI 디지털 윤리 사례 탐구 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
+        ('AI 디지털 윤리 기초 연수', 'https://www.neti.go.kr'),
+        ('AI 활용 개인정보 보호 실천 연수', 'https://www.neti.go.kr'),
+        ('AI 디지털 윤리 사례 탐구 연수', 'https://www.neti.go.kr'),
     ],
     '균형형': [
         ('AI 디지털역량 종합 심화 연수', 'https://www.neti.go.kr'),
@@ -152,8 +134,8 @@ st.title("🎓 AI 디지털역량 유형 진단")
 st.markdown("45개 문항에 응답하시면 귀하의 **AI 디지털역량 유형**과 **맞춤 연수**를 추천해드립니다.")
 st.markdown("---")
 
+# 기본 정보
 st.subheader("📋 기본 정보")
-
 col1, col2 = st.columns(2)
 with col1:
     name = st.text_input("이름")
@@ -167,6 +149,7 @@ lable_map = {'입직기 (경력 0~3년)': 0, '성장기 (경력 4~10년)': 1,
 lable_select = st.selectbox("교직 경력 단계를 선택하세요", list(lable_map.keys()))
 st.markdown("---")
 
+# 설문 문항
 st.subheader("📝 역량 진단 문항")
 st.markdown("각 문항을 읽고 본인의 수준에 해당하는 점수를 선택해주세요.")
 st.markdown("""
@@ -207,7 +190,7 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
 
     st.markdown("---")
     st.subheader("🎯 진단 결과")
-    
+
     if name:
         st.markdown(f"**{name}** 선생님의 진단 결과입니다.")
 
@@ -220,45 +203,50 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
 
     st.markdown("---")
 
-    # 역량 프로파일 시각화
+    # 역량 프로파일 시각화 (Plotly)
     st.subheader("📊 나의 역량 프로파일")
 
     comp_scores = {}
     for comp_name, items in subcomp_items.items():
         comp_scores[comp_name] = np.mean([responses[code] for code in items])
 
-    # 축약 레이블 적용
-    short_labels = [comp_short_labels[k] for k in comp_scores.keys()]
+    labels = list(comp_scores.keys())
     values = list(comp_scores.values())
     colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
 
     fig = go.Figure(go.Bar(
-    x=short_labels,
-    y=values,
-    marker_color=colors,
-    text=[f'{v:.2f}' for v in values],
-    textposition='outside',
-))
-fig.add_hline(y=3.5, line_dash='dash', line_color='gray',
-              annotation_text='기준선 (3.5)', annotation_position='top right')
-fig.update_layout(
-    title='하위역량별 점수 프로파일',
-    yaxis=dict(range=[1, 5.8], title
-
-    # 역량명 범례 (텍스트로 보완)
-    st.markdown("**역량 범례**")
-    legend_cols = st.columns(4)
-    items_list = list(comp_short_labels.items())
-    for i, (full, short) in enumerate(items_list):
-        legend_cols[i % 4].caption(f"{short} = {full}")
+        x=labels,
+        y=values,
+        marker_color=colors,
+        text=[f'{v:.2f}' for v in values],
+        textposition='outside',
+    ))
+    fig.add_hline(
+        y=3.5,
+        line_dash='dash',
+        line_color='gray',
+        annotation_text='기준선 (3.5)',
+        annotation_position='top right',
+    )
+    fig.update_layout(
+        title='하위역량별 점수 프로파일',
+        yaxis=dict(range=[1, 5.8], title='점수'),
+        xaxis=dict(title=''),
+        height=420,
+        font=dict(family='Arial Unicode MS, sans-serif', size=12),
+        plot_bgcolor='white',
+        margin=dict(b=120),
+    )
+    fig.update_xaxes(tickangle=-30)
+    st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
 
     # 추천 연수 (링크 포함)
     st.subheader("📚 맞춤 연수 추천")
     st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
-    for name, url in recommendations[result]:
-        st.markdown(f"- [{name}]({url})")
+    for rec_name, rec_url in recommendations[result]:
+        st.markdown(f"- [{rec_name}]({rec_url})")
 
     st.markdown("---")
 
@@ -271,6 +259,6 @@ fig.update_layout(
                     '역량': comp_name,
                     '문항코드': code,
                     '문항내용': text[:40] + '...' if len(text) > 40 else text,
-                    '점수': responses[code]
+                    '점수': responses[code],
                 })
         st.dataframe(pd.DataFrame(detail), use_container_width=True)

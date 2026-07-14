@@ -3,8 +3,25 @@ import joblib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.rcParams['font.family'] = 'Malgun Gothic'  # Mac이면 'AppleGothic'
+import matplotlib.font_manager as fm
+import os
+
+# ============================================================
+# 한글 폰트 설정 (Streamlit Cloud용)
+# ============================================================
+def set_korean_font():
+    # NanumGothic 설치 경로 탐색
+    font_paths = fm.findSystemFonts(fontpaths=None, fontext='ttf')
+    nanum = [f for f in font_paths if 'Nanum' in f or 'nanum' in f]
+    if nanum:
+        fm.fontManager.addfont(nanum[0])
+        prop = fm.FontProperties(fname=nanum[0])
+        plt.rcParams['font.family'] = prop.get_name()
+    else:
+        # 폰트 없으면 영문 축약 레이블 사용 (fallback)
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+
+set_korean_font()
 
 # ============================================================
 # 기본 설정
@@ -91,7 +108,18 @@ subcomp_items = {
     },
 }
 
-# 문항 순서 (RF 모델 학습 때와 동일해야 함)
+# 그래프용 축약 레이블 (한글 폰트 없을 때 대비)
+comp_short_labels = {
+    '①기초-사회-교육이해': '①기초이해',
+    '②AI윤리실천':         '②AI윤리',
+    '③교육과정-개별화설계': '③교육설계',
+    '④평가설계-기술선정':   '④평가기술',
+    '⑤매체활용':            '⑤매체활용',
+    '⑥기술진단-데이터':     '⑥기술진단',
+    '⑦평가해석-피드백':     '⑦평가피드백',
+    '⑧개인정보-저작권':     '⑧개인정보',
+}
+
 all_items = [
     'A1','A2','A3','B1','B2','B3','C1','C2','C3',
     'D1','D2','D3',
@@ -103,36 +131,32 @@ all_items = [
     'N1','N2','N3','O1','O2','O3',
 ]
 
-# 유형명
-type_names = {
-    0: '실천중심형',
-    1: '균형형',
-    2: '이해중심형',
-}
+type_names = {0: '실천중심형', 1: '균형형', 2: '이해중심형'}
 
-# 유형 설명
 type_desc = {
     '실천중심형': '매체 활용, 평가 피드백 등 실천 역량이 상대적으로 강하나 AI 윤리 역량 개발이 필요한 유형입니다.',
     '균형형':     '8개 하위역량이 전반적으로 고른 수준을 보이는 유형입니다. 특정 역량의 심화 학습을 통해 전문성을 높일 수 있습니다.',
     '이해중심형': 'AI 윤리 및 개인정보·저작권 이해 역량이 상대적으로 강하나 교육과정 설계, 평가, 매체 활용 등 실천 역량 강화가 필요한 유형입니다.',
 }
 
-# 유형별 추천 연수 (테스트용 - 나중에 수정)
+# ============================================================
+# 연수 추천 목록 (이름, URL 쌍으로 구성 - 나중에 수정)
+# ============================================================
 recommendations = {
     '실천중심형': [
-        '✅ AI 디지털 윤리 기초 연수',
-        '✅ AI 활용 개인정보 보호 실천 연수',
-        '✅ AI 디지털 윤리 사례 탐구 연수',
+        ('AI 디지털 윤리 기초 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
+        ('AI 활용 개인정보 보호 실천 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE),
+        ('AI 디지털 윤리 사례 탐구 연수', 'https://www.youtube.com/watch?v=aJDFhdG2GBE'),
     ],
     '균형형': [
-        '✅ AI 디지털역량 종합 심화 연수',
-        '✅ AI 기반 교수학습 설계 고급 연수',
+        ('AI 디지털역량 종합 심화 연수', 'https://www.neti.go.kr'),
+        ('AI 기반 교수학습 설계 고급 연수', 'https://www.neti.go.kr'),
     ],
     '이해중심형': [
-        '✅ AI 기반 교육과정 재구성 실습 연수',
-        '✅ AI 평가설계 및 기술 선정 연수',
-        '✅ AI 디지털 매체 활용 실기 연수',
-        '✅ AI 기술 진단 및 데이터 활용 연수',
+        ('AI 기반 교육과정 재구성 실습 연수', 'https://www.neti.go.kr'),
+        ('AI 평가설계 및 기술 선정 연수', 'https://www.neti.go.kr'),
+        ('AI 디지털 매체 활용 실기 연수', 'https://www.neti.go.kr'),
+        ('AI 기술 진단 및 데이터 활용 연수', 'https://www.neti.go.kr'),
     ],
 }
 
@@ -143,14 +167,12 @@ st.title("🎓 AI 디지털역량 유형 진단")
 st.markdown("45개 문항에 응답하시면 귀하의 **AI 디지털역량 유형**과 **맞춤 연수**를 추천해드립니다.")
 st.markdown("---")
 
-# 기본 정보
 st.subheader("📋 기본 정보")
 lable_map = {'입직기 (경력 0~3년)': 0, '성장기 (경력 4~10년)': 1,
              '발전기 (경력 11~20년)': 2, '심화기 (경력 21년 이상)': 3}
 lable_select = st.selectbox("교직 경력 단계를 선택하세요", list(lable_map.keys()))
 st.markdown("---")
 
-# 설문 문항
 st.subheader("📝 역량 진단 문항")
 st.markdown("각 문항을 읽고 본인의 수준에 해당하는 점수를 선택해주세요.")
 st.markdown("""
@@ -171,7 +193,7 @@ for comp_name, items in subcomp_items.items():
         responses[code] = st.radio(
             f"**{code}.** {text}",
             options=[1, 2, 3, 4, 5],
-            index=2,           # 기본값 3점
+            index=2,
             horizontal=True,
             key=code
         )
@@ -184,7 +206,6 @@ st.markdown("---")
 # ============================================================
 if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"):
 
-    # 예측
     X = np.array([[responses[item] for item in all_items]])
     cluster = model.predict(X)[0]
     result = type_names[cluster]
@@ -193,7 +214,6 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
     st.markdown("---")
     st.subheader("🎯 진단 결과")
 
-    # 유형 출력
     col1, col2 = st.columns([1, 2])
     with col1:
         st.metric("나의 유형", result)
@@ -210,31 +230,41 @@ if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"
     for comp_name, items in subcomp_items.items():
         comp_scores[comp_name] = np.mean([responses[code] for code in items])
 
+    # 축약 레이블 적용
+    short_labels = [comp_short_labels[k] for k in comp_scores.keys()]
+    values = list(comp_scores.values())
+    colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
+
     fig, ax = plt.subplots(figsize=(10, 4))
-    colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in comp_scores.values()]
-    bars = ax.bar(comp_scores.keys(), comp_scores.values(), color=colors, edgecolor='white')
-    ax.set_ylim(1, 5)
+    bars = ax.bar(short_labels, values, color=colors, edgecolor='white')
+    ax.set_ylim(1, 5.5)
     ax.axhline(3.5, color='gray', linestyle='--', linewidth=1, label='기준선 (3.5)')
-    ax.set_ylabel('점수')
-    ax.set_title('하위역량별 점수 프로파일')
-    ax.set_xticklabels(comp_scores.keys(), rotation=30, ha='right', fontsize=9)
+    ax.set_ylabel('Score')
+    ax.set_title('Competency Profile')
+    ax.set_xticklabels(short_labels, rotation=30, ha='right', fontsize=9)
     ax.legend()
 
-    # 막대 위에 점수 표시
-    for bar, val in zip(bars, comp_scores.values()):
+    for bar, val in zip(bars, values):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
                 f'{val:.2f}', ha='center', va='bottom', fontsize=9)
 
     plt.tight_layout()
     st.pyplot(fig)
 
+    # 역량명 범례 (텍스트로 보완)
+    st.markdown("**역량 범례**")
+    legend_cols = st.columns(4)
+    items_list = list(comp_short_labels.items())
+    for i, (full, short) in enumerate(items_list):
+        legend_cols[i % 4].caption(f"{short} = {full}")
+
     st.markdown("---")
 
-    # 추천 연수
+    # 추천 연수 (링크 포함)
     st.subheader("📚 맞춤 연수 추천")
     st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
-    for rec in recommendations[result]:
-        st.markdown(f"- {rec}")
+    for name, url in recommendations[result]:
+        st.markdown(f"- [{name}]({url})")
 
     st.markdown("---")
 

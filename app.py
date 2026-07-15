@@ -3,15 +3,30 @@ import joblib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import bcrypt
+import json
+from supabase import create_client
+from datetime import datetime
 
 # ============================================================
 # 기본 설정
 # ============================================================
 st.set_page_config(
     page_title="AI 디지털역량 유형 진단",
-    page_icon="🤖",
+    page_icon="🎓",
     layout="centered"
 )
+
+# ============================================================
+# Supabase 연결
+# ============================================================
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # ============================================================
 # 모델 로드
@@ -21,6 +36,73 @@ def load_model():
     return joblib.load('rf_model_k3.pkl')
 
 model = load_model()
+
+# ============================================================
+# 세션 초기화
+# ============================================================
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'page' not in st.session_state:
+    st.session_state.page = 'login'
+
+# ============================================================
+# 유틸 함수
+# ============================================================
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+def login(email, password):
+    res = supabase.table('users').select('*').eq('email', email).execute()
+    if res.data:
+        user = res.data[0]
+        if check_password(password, user['password']):
+            return user
+    return None
+
+def register(email, password, name, school, subject, age):
+    try:
+        hashed = hash_password(password)
+        res = supabase.table('users').insert({
+            'email': email,
+            'password': hashed,
+            'name': name,
+            'school': school,
+            'subject': subject,
+            'age': age,
+            'is_admin': False,
+        }).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        return None
+
+def save_result(user_id, cluster, type_name, lable, comp_scores, responses):
+    vals = list(comp_scores.values())
+    supabase.table('results').insert({
+        'user_id': user_id,
+        'cluster': int(cluster),
+        'type_name': type_name,
+        'lable': lable,
+        'score_1': vals[0], 'score_2': vals[1],
+        'score_3': vals[2], 'score_4': vals[3],
+        'score_5': vals[4], 'score_6': vals[5],
+        'score_7': vals[6], 'score_8': vals[7],
+        'responses': json.dumps(responses),
+    }).execute()
+
+def get_my_results(user_id):
+    res = supabase.table('results').select('*')\
+        .eq('user_id', user_id)\
+        .order('created_at', desc=True).execute()
+    return res.data
+
+def get_all_results():
+    res = supabase.table('results').select('*, users(name, email, school)').execute()
+    return res.data
 
 # ============================================================
 # 문항 정의
@@ -108,7 +190,6 @@ type_desc = {
     '이해중심형': 'AI 윤리 및 개인정보·저작권 이해 역량이 상대적으로 강하나 교육과정 설계, 평가, 매체 활용 등 실천 역량 강화가 필요한 유형입니다.',
 }
 
-# 연수 추천 목록 (이름, URL) - 실제 URL로 교체하세요
 recommendations = {
     '실천중심형': [
         ('AI 디지털 윤리 기초 연수', 'https://www.neti.go.kr'),
@@ -127,32 +208,91 @@ recommendations = {
     ],
 }
 
+score_cols = ['score_1','score_2','score_3','score_4',
+              'score_5','score_6','score_7','score_8']
+comp_names = list(subcomp_items.keys())
+
 # ============================================================
-# 화면 구성
+# 페이지: 로그인
 # ============================================================
-st.title("🎓 AI 디지털역량 유형 진단")
-st.markdown("45개 문항에 응답하시면 귀하의 **AI 디지털역량 유형**과 **맞춤 연수**를 추천해드립니다.")
-st.markdown("---")
+def page_login():
+    st.title("🎓 AI 디지털역량 유형 진단")
+    st.markdown("---")
+    tab1, tab2 = st.tabs(["🔐 로그인", "📝 회원가입"])
 
-# 기본 정보
-st.subheader("📋 기본 정보")
-col1, col2 = st.columns(2)
-with col1:
-    name = st.text_input("이름")
-    school = st.text_input("학교명")
-with col2:
-    age = st.text_input("나이")
-    subject = st.text_input("담당 과목")
+    with tab1:
+        st.subheader("로그인")
+        email = st.text_input("이메일", key="login_email")
+        password = st.text_input("비밀번호", type="password", key="login_pw")
+        if st.button("로그인", use_container_width=True, type="primary"):
+            user = login(email, password)
+            if user:
+                st.session_state.logged_in = True
+                st.session_state.user = user
+                st.session_state.page = 'admin' if user['is_admin'] else 'home'
+                st.rerun()
+            else:
+                st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
 
-lable_map = {'입직기 (경력 0~3년)': 0, '성장기 (경력 4~10년)': 1,
-             '발전기 (경력 11~20년)': 2, '심화기 (경력 21년 이상)': 3}
-lable_select = st.selectbox("교직 경력 단계를 선택하세요", list(lable_map.keys()))
-st.markdown("---")
+    with tab2:
+        st.subheader("회원가입")
+        r_name    = st.text_input("이름", key="reg_name")
+        r_email   = st.text_input("이메일", key="reg_email")
+        r_pw      = st.text_input("비밀번호", type="password", key="reg_pw")
+        r_pw2     = st.text_input("비밀번호 확인", type="password", key="reg_pw2")
+        col1, col2 = st.columns(2)
+        with col1:
+            r_school  = st.text_input("학교명", key="reg_school")
+        with col2:
+            r_subject = st.text_input("담당 과목", key="reg_subject")
+        r_age = st.text_input("나이", key="reg_age")
 
-# 설문 문항
-st.subheader("📝 역량 진단 문항")
-st.markdown("각 문항을 읽고 본인의 수준에 해당하는 점수를 선택해주세요.")
-st.markdown("""
+        if st.button("회원가입", use_container_width=True):
+            if not all([r_name, r_email, r_pw, r_pw2]):
+                st.error("이름, 이메일, 비밀번호는 필수입니다.")
+            elif r_pw != r_pw2:
+                st.error("비밀번호가 일치하지 않습니다.")
+            else:
+                user = register(r_email, r_pw, r_name, r_school, r_subject, r_age)
+                if user:
+                    st.success("회원가입 완료! 로그인해주세요.")
+                else:
+                    st.error("이미 사용 중인 이메일입니다.")
+
+# ============================================================
+# 페이지: 홈 (진단 + 결과)
+# ============================================================
+def page_home():
+    user = st.session_state.user
+
+    # 사이드바
+    with st.sidebar:
+        st.markdown(f"👋 **{user['name']}** 선생님")
+        st.markdown(f"📧 {user['email']}")
+        st.markdown("---")
+        if st.button("📋 내 진단 이력", use_container_width=True):
+            st.session_state.page = 'history'
+            st.rerun()
+        if st.button("🔓 로그아웃", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.session_state.page = 'login'
+            st.rerun()
+
+    st.title("🎓 AI 디지털역량 유형 진단")
+    st.markdown("45개 문항에 응답하시면 귀하의 **AI 디지털역량 유형**과 **맞춤 연수**를 추천해드립니다.")
+    st.markdown("---")
+
+    # 경력 단계
+    st.subheader("📋 기본 정보")
+    lable_map = {'입직기 (경력 0~3년)': '입직기', '성장기 (경력 4~10년)': '성장기',
+                 '발전기 (경력 11~20년)': '발전기', '심화기 (경력 21년 이상)': '심화기'}
+    lable_select = st.selectbox("교직 경력 단계를 선택하세요", list(lable_map.keys()))
+    st.markdown("---")
+
+    # 설문 문항
+    st.subheader("📝 역량 진단 문항")
+    st.markdown("""
 | 점수 | 의미 |
 |------|------|
 | 1 | 전혀 그렇지 않다 |
@@ -161,104 +301,263 @@ st.markdown("""
 | 4 | 그렇다 |
 | 5 | 매우 그렇다 |
 """)
-st.markdown("---")
-
-responses = {}
-for comp_name, items in subcomp_items.items():
-    st.markdown(f"### {comp_name}")
-    for code, text in items.items():
-        responses[code] = st.radio(
-            f"**{code}.** {text}",
-            options=[1, 2, 3, 4, 5],
-            index=2,
-            horizontal=True,
-            key=code
-        )
-    st.markdown("")
-
-st.markdown("---")
-
-# ============================================================
-# 결과 예측
-# ============================================================
-if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"):
-
-    X = np.array([[responses[item] for item in all_items]])
-    cluster = model.predict(X)[0]
-    result = type_names[cluster]
-    proba = model.predict_proba(X)[0]
-
-    st.markdown("---")
-    st.subheader("🎯 진단 결과")
-
-    if name:
-        st.markdown(f"**{name}** 선생님의 진단 결과입니다.")
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric("나의 유형", result)
-        st.caption(f"소속 확률: {proba[cluster]*100:.1f}%")
-    with col2:
-        st.info(type_desc[result])
-
     st.markdown("---")
 
-    # 역량 프로파일 시각화 (Plotly)
-    st.subheader("📊 나의 역량 프로파일")
-
-    comp_scores = {}
+    responses = {}
     for comp_name, items in subcomp_items.items():
-        comp_scores[comp_name] = np.mean([responses[code] for code in items])
+        st.markdown(f"### {comp_name}")
+        for code, text in items.items():
+            responses[code] = st.radio(
+                f"**{code}.** {text}",
+                options=[1, 2, 3, 4, 5],
+                index=2,
+                horizontal=True,
+                key=f"q_{code}"
+            )
+        st.markdown("")
 
-    labels = list(comp_scores.keys())
-    values = list(comp_scores.values())
-    colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
+    st.markdown("---")
 
-    fig = go.Figure(go.Bar(
-        x=labels,
-        y=values,
-        marker_color=colors,
-        text=[f'{v:.2f}' for v in values],
-        textposition='outside',
+    if st.button("✅ 결과 확인하기", use_container_width=True, type="primary"):
+        X = np.array([[responses[item] for item in all_items]])
+        cluster = model.predict(X)[0]
+        result = type_names[cluster]
+        proba = model.predict_proba(X)[0]
+
+        comp_scores = {
+            name: np.mean([responses[code] for code in items])
+            for name, items in subcomp_items.items()
+        }
+
+        # DB 저장
+        save_result(
+            user_id=user['id'],
+            cluster=cluster,
+            type_name=result,
+            lable=lable_map[lable_select],
+            comp_scores=comp_scores,
+            responses=responses,
+        )
+
+        # 결과 출력
+        st.markdown("---")
+        st.subheader("🎯 진단 결과")
+        st.markdown(f"**{user['name']}** 선생님의 진단 결과입니다.")
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.metric("나의 유형", result)
+            st.caption(f"소속 확률: {proba[cluster]*100:.1f}%")
+        with col2:
+            st.info(type_desc[result])
+
+        st.markdown("---")
+        st.subheader("📊 나의 역량 프로파일")
+
+        labels = list(comp_scores.keys())
+        values = list(comp_scores.values())
+        colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
+
+        fig = go.Figure(go.Bar(
+            x=labels, y=values,
+            marker_color=colors,
+            text=[f'{v:.2f}' for v in values],
+            textposition='outside',
+        ))
+        fig.add_hline(y=3.5, line_dash='dash', line_color='gray',
+                      annotation_text='기준선 (3.5)', annotation_position='top right')
+        fig.update_layout(
+            title='하위역량별 점수 프로파일',
+            yaxis=dict(range=[1, 5.8], title='점수'),
+            height=420,
+            plot_bgcolor='white',
+            margin=dict(b=120),
+        )
+        fig.update_xaxes(tickangle=-30)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("📚 맞춤 연수 추천")
+        st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
+        for rec_name, rec_url in recommendations[result]:
+            st.markdown(f"- [{rec_name}]({rec_url})")
+
+        with st.expander("📋 문항별 상세 점수 보기"):
+            detail = []
+            for comp_name, items in subcomp_items.items():
+                for code, text in items.items():
+                    detail.append({
+                        '역량': comp_name, '문항코드': code,
+                        '문항내용': text[:40] + '...' if len(text) > 40 else text,
+                        '점수': responses[code],
+                    })
+            st.dataframe(pd.DataFrame(detail), use_container_width=True)
+
+# ============================================================
+# 페이지: 내 진단 이력
+# ============================================================
+def page_history():
+    user = st.session_state.user
+
+    with st.sidebar:
+        st.markdown(f"👋 **{user['name']}** 선생님")
+        st.markdown("---")
+        if st.button("🏠 진단하기", use_container_width=True):
+            st.session_state.page = 'home'
+            st.rerun()
+        if st.button("🔓 로그아웃", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.session_state.page = 'login'
+            st.rerun()
+
+    st.title("📋 내 진단 이력")
+    st.markdown("---")
+
+    data = get_my_results(user['id'])
+    if not data:
+        st.info("아직 진단 결과가 없습니다. 진단을 먼저 진행해주세요.")
+        return
+
+    df = pd.DataFrame(data)
+    df['진단일시'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+    df.rename(columns={
+        'type_name': '유형', 'lable': '경력단계',
+        **{f'score_{i+1}': comp_names[i] for i in range(8)}
+    }, inplace=True)
+
+    # 이력 요약
+    st.subheader(f"총 {len(df)}회 진단")
+    st.dataframe(
+        df[['진단일시', '경력단계', '유형'] + comp_names].round(2),
+        use_container_width=True
+    )
+
+    # 유형 변화 그래프
+    if len(df) >= 2:
+        st.markdown("---")
+        st.subheader("📈 역량 점수 변화")
+        fig = go.Figure()
+        for comp in comp_names:
+            fig.add_trace(go.Scatter(
+                x=df['진단일시'][::-1],
+                y=df[comp][::-1],
+                mode='lines+markers',
+                name=comp,
+            ))
+        fig.add_hline(y=3.5, line_dash='dash', line_color='gray',
+                      annotation_text='기준선 (3.5)')
+        fig.update_layout(
+            yaxis=dict(range=[1, 5.5], title='점수'),
+            height=420,
+            plot_bgcolor='white',
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 최신 vs 이전 비교
+        st.markdown("---")
+        st.subheader("🔍 최신 vs 이전 비교")
+        latest = df.iloc[0]
+        prev   = df.iloc[1]
+
+        compare = pd.DataFrame({
+            '역량': comp_names,
+            f'이전 ({prev["진단일시"]})': [prev[c] for c in comp_names],
+            f'최신 ({latest["진단일시"]})': [latest[c] for c in comp_names],
+        })
+        compare['변화'] = compare.iloc[:, 2] - compare.iloc[:, 1]
+        compare['변화'] = compare['변화'].apply(
+            lambda x: f'▲ {x:.2f}' if x > 0 else (f'▼ {abs(x):.2f}' if x < 0 else '-')
+        )
+        st.dataframe(compare.round(2), use_container_width=True)
+
+# ============================================================
+# 페이지: 관리자
+# ============================================================
+def page_admin():
+    with st.sidebar:
+        st.markdown("🛠️ **관리자 모드**")
+        st.markdown("---")
+        if st.button("🔓 로그아웃", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.session_state.page = 'login'
+            st.rerun()
+
+    st.title("🛠️ 관리자 대시보드")
+    st.markdown("---")
+
+    data = get_all_results()
+    if not data:
+        st.info("아직 진단 데이터가 없습니다.")
+        return
+
+    rows = []
+    for d in data:
+        user_info = d.get('users') or {}
+        rows.append({
+            '진단일시': pd.to_datetime(d['created_at']).strftime('%Y-%m-%d %H:%M'),
+            '이름': user_info.get('name', ''),
+            '이메일': user_info.get('email', ''),
+            '학교': user_info.get('school', ''),
+            '경력단계': d['lable'],
+            '유형': d['type_name'],
+            **{comp_names[i]: d[f'score_{i+1}'] for i in range(8)},
+        })
+
+    df = pd.DataFrame(rows)
+
+    # 전체 현황
+    col1, col2, col3 = st.columns(3)
+    col1.metric("전체 진단 수", len(df))
+    col2.metric("참여 인원", df['이메일'].nunique())
+    col3.metric("가장 많은 유형", df['유형'].value_counts().idxmax())
+
+    st.markdown("---")
+
+    # 유형 분포
+    st.subheader("📊 유형 분포")
+    type_count = df['유형'].value_counts().reset_index()
+    type_count.columns = ['유형', '인원']
+    fig = go.Figure(go.Pie(
+        labels=type_count['유형'],
+        values=type_count['인원'],
+        hole=0.4,
     ))
-    fig.add_hline(
-        y=3.5,
-        line_dash='dash',
-        line_color='gray',
-        annotation_text='기준선 (3.5)',
-        annotation_position='top right',
-    )
-    fig.update_layout(
-        title='하위역량별 점수 프로파일',
-        yaxis=dict(range=[1, 5.8], title='점수'),
-        xaxis=dict(title=''),
-        height=420,
-        font=dict(family='Arial Unicode MS, sans-serif', size=12),
-        plot_bgcolor='white',
-        margin=dict(b=120),
-    )
-    fig.update_xaxes(tickangle=-30)
+    fig.update_layout(height=350)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("---")
-
-    # 추천 연수 (링크 포함)
-    st.subheader("📚 맞춤 연수 추천")
-    st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
-    for rec_name, rec_url in recommendations[result]:
-        st.markdown(f"- [{rec_name}]({rec_url})")
+    # 경력단계별 유형 분포
+    st.subheader("📊 경력단계별 유형 분포")
+    ct = pd.crosstab(df['경력단계'], df['유형'])
+    st.dataframe(ct, use_container_width=True)
 
     st.markdown("---")
 
-    # 상세 점수 테이블
-    with st.expander("📋 문항별 상세 점수 보기"):
-        detail = []
-        for comp_name, items in subcomp_items.items():
-            for code, text in items.items():
-                detail.append({
-                    '역량': comp_name,
-                    '문항코드': code,
-                    '문항내용': text[:40] + '...' if len(text) > 40 else text,
-                    '점수': responses[code],
-                })
-        st.dataframe(pd.DataFrame(detail), use_container_width=True)
+    # 전체 데이터 테이블
+    st.subheader("📋 전체 진단 데이터")
+    st.dataframe(df, use_container_width=True)
+
+    # 엑셀 다운로드
+    csv = df.to_csv(index=False, encoding='utf-8-sig')
+    st.download_button(
+        label="⬇️ CSV 다운로드",
+        data=csv,
+        file_name=f"aiedap_results_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime='text/csv',
+    )
+
+# ============================================================
+# 라우터
+# ============================================================
+if not st.session_state.logged_in:
+    page_login()
+else:
+    if st.session_state.page == 'home':
+        page_home()
+    elif st.session_state.page == 'history':
+        page_history()
+    elif st.session_state.page == 'admin':
+        page_admin()
+    else:
+        page_login()

@@ -65,6 +65,10 @@ def login(email, password):
     return None
 
 def register(email, password, name, school, subject, age):
+    # 이메일 중복 확인
+    check = supabase.table('users').select('id').eq('email', email).execute()
+    if check.data:
+        return 'duplicate'
     try:
         hashed = hash_password(password)
         res = supabase.table('users').insert({
@@ -76,9 +80,9 @@ def register(email, password, name, school, subject, age):
             'age': age,
             'is_admin': False,
         }).execute()
-        return res.data[0] if res.data else None
+        return res.data[0] if res.data else 'error'
     except Exception as e:
-        return None
+        return 'error'
 
 def save_result(user_id, cluster, type_name, lable, comp_scores, responses):
     vals = list(comp_scores.values())
@@ -253,11 +257,13 @@ def page_login():
             elif r_pw != r_pw2:
                 st.error("비밀번호가 일치하지 않습니다.")
             else:
-                user = register(r_email, r_pw, r_name, r_school, r_subject, r_age)
-                if user:
-                    st.success("회원가입 완료! 로그인해주세요.")
-                else:
+                result = register(r_email, r_pw, r_name, r_school, r_subject, r_age)
+                if result == 'duplicate':
                     st.error("이미 사용 중인 이메일입니다.")
+                elif result == 'error':
+                    st.error("회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+                else:
+                    st.success("✅ 회원가입 완료! 로그인 탭에서 로그인해주세요.")
 
 # ============================================================
 # 페이지: 홈 (진단 + 결과)

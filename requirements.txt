@@ -4,5 +4,6 @@ scikit-learn
 streamlit
 joblib
 openpyxl
-matplotlib
 plotly
+supabase
+bcrypt

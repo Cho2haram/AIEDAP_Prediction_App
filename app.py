@@ -82,6 +82,7 @@ def register(email, password, name, school, subject, age):
         }).execute()
         return res.data[0] if res.data else 'error'
     except Exception as e:
+        st.error(f"상세 오류: {str(e)}")
         return 'error'
 
 def save_result(user_id, cluster, type_name, lable, comp_scores, responses):

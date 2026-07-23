@@ -346,7 +346,38 @@ def page_home():
             responses=responses,
         )
 
+        # ── 집단 평균 계산 ──────────────────────────────
+        my_lable = lable_map[lable_select]
+        all_res  = supabase.table('results').select('*').execute().data
+        all_df   = pd.DataFrame(all_res) if all_res else pd.DataFrame()
+
+        score_cols_list = [f'score_{i+1}' for i in range(8)]
+
+        if not all_df.empty and all(c in all_df.columns for c in score_cols_list):
+            group_df  = all_df[all_df['lable'] == my_lable]
+            total_avg = all_df[score_cols_list].mean().values
+            group_avg = group_df[score_cols_list].mean().values if len(group_df) > 0 else total_avg
+        else:
+            total_avg = np.array(list(comp_scores.values()))
+            group_avg = total_avg
+
+        my_vals   = np.array(list(comp_scores.values()))
+        my_total  = float(np.mean(my_vals))
+        grp_total = float(np.mean(group_avg))
+        all_total = float(np.mean(total_avg))
+
+        # ── 수준 판정 ────────────────────────────────
+        def get_level(score):
+            if score >= 4.5:   return '우수', '#2ecc71'
+            elif score >= 3.5: return '양호', '#3498db'
+            elif score >= 2.5: return '보통', '#f39c12'
+            else:              return '미흡', '#e74c3c'
+
+        level_txt, level_color = get_level(my_total)
+
+        # ════════════════════════════════════════════
         # 결과 출력
+        # ════════════════════════════════════════════
         st.markdown("---")
         st.subheader("🎯 진단 결과")
         st.markdown(f"**{user['name']}** 선생님의 진단 결과입니다.")
@@ -358,37 +389,116 @@ def page_home():
         with col2:
             st.info(type_desc[result])
 
+        # ── 종합 점수 카드 ───────────────────────────
         st.markdown("---")
-        st.subheader("📊 나의 역량 프로파일")
+        st.subheader("📈 종합 점수")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("나의 점수", f"{my_total:.2f}",
+                      delta=f"{my_total - all_total:+.2f} (전체 평균 대비)")
+        with c2:
+            st.metric(f"{my_lable} 평균", f"{grp_total:.2f}")
+        with c3:
+            st.metric("전체 평균", f"{all_total:.2f}")
 
-        labels = list(comp_scores.keys())
-        values = list(comp_scores.values())
-        colors = ['#e74c3c' if v < 3.5 else '#2ecc71' for v in values]
+        st.markdown(f"#### 수준 판정: <span style='color:{level_color}'>{level_txt}</span>",
+                    unsafe_allow_html=True)
 
-        fig = go.Figure(go.Bar(
-            x=labels, y=values,
-            marker_color=colors,
-            text=[f'{v:.2f}' for v in values],
-            textposition='outside',
-        ))
-        fig.add_hline(y=3.5, line_dash='dash', line_color='gray',
-                      annotation_text='기준선 (3.5)', annotation_position='top right')
-        fig.update_layout(
-            title='하위역량별 점수 프로파일',
-            yaxis=dict(range=[1, 5.8], title='점수'),
-            height=420,
-            plot_bgcolor='white',
-            margin=dict(b=120),
+        # 종합 점수 비교 막대
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(name='내 점수',       x=['내 점수'],       y=[my_total],   marker_color='#4C72B0'))
+        fig_bar.add_trace(go.Bar(name=f'{my_lable} 평균', x=[f'{my_lable} 평균'], y=[grp_total], marker_color='#2ecc71'))
+        fig_bar.add_trace(go.Bar(name='전체 평균',     x=['전체 평균'],     y=[all_total],  marker_color='#f39c12'))
+        fig_bar.update_layout(
+            title='종합 점수 비교',
+            yaxis=dict(range=[1, 5.5], title='점수 (5점 만점)'),
+            height=350, plot_bgcolor='white', showlegend=False,
+            bargap=0.4,
         )
-        fig.update_xaxes(tickangle=-30)
-        st.plotly_chart(fig, use_container_width=True)
+        fig_bar.update_traces(text=[f'{my_total:.2f}', f'{grp_total:.2f}', f'{all_total:.2f}'],
+                              textposition='outside')
+        st.plotly_chart(fig_bar, use_container_width=True)
 
+        # ── 레이더차트 ───────────────────────────────
+        st.markdown("---")
+        st.subheader("🕸️ 8개 하위역량 프로파일")
+        st.caption(f"파란선: 내 점수 │ 초록선: {my_lable} 평균 │ 주황선: 전체 평균")
+
+        labels_r = list(comp_scores.keys())
+        labels_r_closed = labels_r + [labels_r[0]]
+        my_r    = list(my_vals)   + [my_vals[0]]
+        grp_r   = list(group_avg) + [group_avg[0]]
+        total_r = list(total_avg) + [total_avg[0]]
+
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=my_r, theta=labels_r_closed,
+            fill='toself', name='내 점수',
+            line=dict(color='#4C72B0', width=2),
+            fillcolor='rgba(76,114,176,0.15)',
+        ))
+        fig_radar.add_trace(go.Scatterpolar(
+            r=grp_r, theta=labels_r_closed,
+            fill='none', name=f'{my_lable} 평균',
+            line=dict(color='#2ecc71', width=2, dash='dash'),
+        ))
+        fig_radar.add_trace(go.Scatterpolar(
+            r=total_r, theta=labels_r_closed,
+            fill='none', name='전체 평균',
+            line=dict(color='#f39c12', width=2, dash='dot'),
+        ))
+        fig_radar.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[1, 5])),
+            height=500, showlegend=True,
+            legend=dict(orientation='h', yanchor='bottom', y=-0.2),
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+        # ── 상위 3개 / 하위 3개 역량 ─────────────────
+        st.markdown("---")
+        st.subheader("🏆 나의 강점 & 개발 필요 역량")
+
+        score_series = pd.Series(comp_scores)
+        top3 = score_series.sort_values(ascending=False).head(3)
+        bot3 = score_series.sort_values(ascending=True).head(3)
+
+        col_t, col_b = st.columns(2)
+        with col_t:
+            st.markdown("#### ✅ 상위 역량 TOP 3")
+            for i, (name, val) in enumerate(top3.items(), 1):
+                diff = val - float(group_avg[list(comp_scores.keys()).index(name)])
+                arrow = f"▲ {diff:.2f}" if diff >= 0 else f"▼ {abs(diff):.2f}"
+                color = '#2ecc71' if diff >= 0 else '#e74c3c'
+                st.markdown(
+                    f"**{i}. {name}**  \n"
+                    f"점수: `{val:.2f}` &nbsp; "
+                    f"<span style='color:{color}'>{arrow} ({my_lable} 평균 대비)</span>",
+                    unsafe_allow_html=True
+                )
+                st.progress(min((val - 1) / 4, 1.0))
+
+        with col_b:
+            st.markdown("#### 🔧 개발 필요 역량 TOP 3")
+            for i, (name, val) in enumerate(bot3.items(), 1):
+                diff = val - float(group_avg[list(comp_scores.keys()).index(name)])
+                arrow = f"▲ {diff:.2f}" if diff >= 0 else f"▼ {abs(diff):.2f}"
+                color = '#2ecc71' if diff >= 0 else '#e74c3c'
+                st.markdown(
+                    f"**{i}. {name}**  \n"
+                    f"점수: `{val:.2f}` &nbsp; "
+                    f"<span style='color:{color}'>{arrow} ({my_lable} 평균 대비)</span>",
+                    unsafe_allow_html=True
+                )
+                st.progress(min((val - 1) / 4, 1.0))
+
+        # ── 맞춤 연수 추천 ───────────────────────────
         st.markdown("---")
         st.subheader("📚 맞춤 연수 추천")
         st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
         for rec_name, rec_url in recommendations[result]:
             st.markdown(f"- [{rec_name}]({rec_url})")
 
+        # ── 문항별 상세 점수 ─────────────────────────
         with st.expander("📋 문항별 상세 점수 보기"):
             detail = []
             for comp_name, items in subcomp_items.items():

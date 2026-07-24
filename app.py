@@ -39,6 +39,16 @@ def load_model():
 model = load_model()
 
 # ============================================================
+# Gemini 초기화
+# ============================================================
+@st.cache_resource
+def load_gemini():
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    return genai.GenerativeModel('gemini-1.5-flash')
+
+gemini = load_gemini()
+
+# ============================================================
 # 세션 초기화
 # ============================================================
 if 'logged_in' not in st.session_state:
@@ -66,7 +76,6 @@ def login(email, password):
     return None
 
 def register(email, password, name, school, subject, age):
-    # 이메일 중복 확인
     check = supabase.table('users').select('id').eq('email', email).execute()
     if check.data:
         return 'duplicate'
@@ -109,6 +118,51 @@ def get_my_results(user_id):
 def get_all_results():
     res = supabase.table('results').select('*, users(name, email, school)').execute()
     return res.data
+
+# ============================================================
+# Gemini 분석 함수
+# ============================================================
+def get_gemini_analysis(name, lable, result, my_total, grp_total,
+                        all_total, level_txt, top3, bot3, comp_scores):
+    top3_str = '\n'.join([f"  - {n}: {v:.2f}점" for n, v in top3.items()])
+    bot3_str = '\n'.join([f"  - {n}: {v:.2f}점" for n, v in bot3.items()])
+
+    prompt = f"""
+당신은 교사 AI 디지털역량 전문 컨설턴트입니다.
+아래 교사의 진단 결과를 분석하여 따뜻하고 구체적인 피드백을 작성해주세요.
+
+[교사 정보]
+- 생애주기: {lable}
+- 역량 유형: {result}
+- 나의 전체 평균: {my_total:.2f}점 / 5.00점
+- {lable} 집단 평균: {grp_total:.2f}점
+- 전체 평균: {all_total:.2f}점
+- 수준 판정: {level_txt}
+
+[상위 역량 TOP 3 (강점)]
+{top3_str}
+
+[하위 역량 TOP 3 (개발 필요)]
+{bot3_str}
+
+[유형 설명]
+- 실천중심형: 매체활용·평가피드백 강함, AI윤리 상대적 약함
+- 균형형: 전 역량 고른 수준
+- 이해중심형: AI윤리·개인정보 강함, 실천기술 상대적 약함
+
+[작성 조건]
+1. "{name} 선생님"으로 시작해주세요
+2. 유형의 의미와 강점을 먼저 긍정적으로 설명해주세요
+3. 개발이 필요한 역량과 그 이유를 구체적으로 설명해주세요
+4. 어떤 방향으로 성장하면 좋을지 제안해주세요
+5. 전체 분량은 200~300자 내외로 간결하게 작성해주세요
+6. 한국어로 작성해주세요
+"""
+    try:
+        response = gemini.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI 분석을 불러오는 데 실패했습니다. ({str(e)})"
 
 # ============================================================
 # 문항 정의
@@ -196,51 +250,6 @@ type_desc = {
     '이해중심형': 'AI 윤리 및 개인정보·저작권 이해 역량이 상대적으로 강하나 교육과정 설계, 평가, 매체 활용 등 실천 역량 강화가 필요한 유형입니다.',
 }
 
-@st.cache_resource
-def load_gemini():
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemini-1.5-flash')  # 무료 티어
-
-gemini = load_gemini()
-
-def get_ai_recommendation(lable, result, my_total, 
-                           grp_total, top3_names, bot3_names):
-    prompt = f"""
-당신은 교사 AI 디지털역량 연수 전문가입니다.
-아래 교사의 진단 결과를 보고 맞춤형 연수를 추천해주세요.
-
-[진단 결과]
-- 생애주기: {lable}
-- 역량 유형: {result}
-- 나의 전체 평균: {my_total:.2f} / 5.00점
-- 집단 평균: {grp_total:.2f} / 5.00점
-- 상위 역량 (강점): {', '.join(top3_names)}
-- 하위 역량 (개발 필요): {', '.join(bot3_names)}
-
-[유형 설명]
-- 실천중심형: 매체활용·평가피드백 강함, AI윤리 약함
-- 균형형: 전 역량 고른 수준, 특정 심화 필요
-- 이해중심형: AI윤리·개인정보 강함, 실천기술 약함
-
-[요청사항]
-위 결과를 바탕으로 이 교사에게 가장 필요한 연수를 3개 추천해주세요.
-각 연수마다 아래 형식으로 작성해주세요.
-
-1. [연수명]
-   - 추천 이유: (이 교사의 진단 결과와 연결해서 구체적으로)
-   - 기대 효과: (수강 후 어떤 역량이 향상되는지)
-
-2. [연수명]
-   ...
-
-3. [연수명]
-   ...
-
-한국어로 작성하고, 실제로 존재할 법한 현실적인 연수명을 사용해주세요.
-"""
-    response = gemini.generate_content(prompt)
-    return response.text
-                               
 recommendations = {
     '실천중심형': [
         ('AI 디지털 윤리 기초 연수', 'https://www.neti.go.kr'),
@@ -318,7 +327,6 @@ def page_login():
 def page_home():
     user = st.session_state.user
 
-    # 사이드바
     with st.sidebar:
         st.markdown(f"👋 **{user['name']}** 선생님")
         st.markdown(f"📧 {user['email']}")
@@ -336,14 +344,12 @@ def page_home():
     st.markdown("45개 문항에 응답하시면 귀하의 **AI 디지털역량 유형**과 **맞춤 연수**를 추천해드립니다.")
     st.markdown("---")
 
-    # 경력 단계
     st.subheader("📋 기본 정보")
     lable_map = {'입직기 (경력 0~3년)': '입직기', '성장기 (경력 4~10년)': '성장기',
                  '발전기 (경력 11~20년)': '발전기', '심화기 (경력 21년 이상)': '심화기'}
     lable_select = st.selectbox("교직 경력 단계를 선택하세요", list(lable_map.keys()))
     st.markdown("---")
 
-    # 설문 문항
     st.subheader("📝 역량 진단 문항")
     st.markdown("""
 | 점수 | 의미 |
@@ -382,7 +388,6 @@ def page_home():
             for name, items in subcomp_items.items()
         }
 
-        # DB 저장
         save_result(
             user_id=user['id'],
             cluster=cluster,
@@ -392,11 +397,9 @@ def page_home():
             responses=responses,
         )
 
-        # ── 집단 평균 계산 ──────────────────────────────
         my_lable = lable_map[lable_select]
         all_res  = supabase.table('results').select('*').execute().data
         all_df   = pd.DataFrame(all_res) if all_res else pd.DataFrame()
-
         score_cols_list = [f'score_{i+1}' for i in range(8)]
 
         if not all_df.empty and all(c in all_df.columns for c in score_cols_list):
@@ -412,7 +415,6 @@ def page_home():
         grp_total = float(np.mean(group_avg))
         all_total = float(np.mean(total_avg))
 
-        # ── 수준 판정 ────────────────────────────────
         def get_level(score):
             if score >= 4.5:   return '우수', '#2ecc71'
             elif score >= 3.5: return '양호', '#3498db'
@@ -420,6 +422,10 @@ def page_home():
             else:              return '미흡', '#e74c3c'
 
         level_txt, level_color = get_level(my_total)
+
+        score_series = pd.Series(comp_scores)
+        top3 = score_series.sort_values(ascending=False).head(3)
+        bot3 = score_series.sort_values(ascending=True).head(3)
 
         # ════════════════════════════════════════════
         # 결과 출력
@@ -435,7 +441,25 @@ def page_home():
         with col2:
             st.info(type_desc[result])
 
-        # ── 종합 점수 카드 ───────────────────────────
+        # ── AI 분석 코멘트 (자동 생성) ──────────────
+        st.markdown("---")
+        st.subheader("🤖 AI 맞춤 분석")
+        with st.spinner("AI가 진단 결과를 분석 중입니다..."):
+            ai_comment = get_gemini_analysis(
+                name=user['name'],
+                lable=my_lable,
+                result=result,
+                my_total=my_total,
+                grp_total=grp_total,
+                all_total=all_total,
+                level_txt=level_txt,
+                top3=top3,
+                bot3=bot3,
+                comp_scores=comp_scores,
+            )
+        st.info(ai_comment)
+
+        # ── 종합 점수 ────────────────────────────────
         st.markdown("---")
         st.subheader("📈 종합 점수")
         c1, c2, c3 = st.columns(3)
@@ -450,19 +474,21 @@ def page_home():
         st.markdown(f"#### 수준 판정: <span style='color:{level_color}'>{level_txt}</span>",
                     unsafe_allow_html=True)
 
-        # 종합 점수 비교 막대
         fig_bar = go.Figure()
-        fig_bar.add_trace(go.Bar(name='내 점수',       x=['내 점수'],       y=[my_total],   marker_color='#4C72B0'))
-        fig_bar.add_trace(go.Bar(name=f'{my_lable} 평균', x=[f'{my_lable} 평균'], y=[grp_total], marker_color='#2ecc71'))
-        fig_bar.add_trace(go.Bar(name='전체 평균',     x=['전체 평균'],     y=[all_total],  marker_color='#f39c12'))
+        fig_bar.add_trace(go.Bar(name='내 점수',
+            x=['내 점수'], y=[my_total], marker_color='#4C72B0'))
+        fig_bar.add_trace(go.Bar(name=f'{my_lable} 평균',
+            x=[f'{my_lable} 평균'], y=[grp_total], marker_color='#2ecc71'))
+        fig_bar.add_trace(go.Bar(name='전체 평균',
+            x=['전체 평균'], y=[all_total], marker_color='#f39c12'))
         fig_bar.update_layout(
             title='종합 점수 비교',
             yaxis=dict(range=[1, 5.5], title='점수 (5점 만점)'),
-            height=350, plot_bgcolor='white', showlegend=False,
-            bargap=0.4,
+            height=350, plot_bgcolor='white', showlegend=False, bargap=0.4,
         )
-        fig_bar.update_traces(text=[f'{my_total:.2f}', f'{grp_total:.2f}', f'{all_total:.2f}'],
-                              textposition='outside')
+        fig_bar.update_traces(
+            text=[f'{my_total:.2f}', f'{grp_total:.2f}', f'{all_total:.2f}'],
+            textposition='outside')
         st.plotly_chart(fig_bar, use_container_width=True)
 
         # ── 레이더차트 ───────────────────────────────
@@ -472,25 +498,22 @@ def page_home():
 
         labels_r = list(comp_scores.keys())
         labels_r_closed = labels_r + [labels_r[0]]
-        my_r    = list(my_vals)   + [my_vals[0]]
-        grp_r   = list(group_avg) + [group_avg[0]]
-        total_r = list(total_avg) + [total_avg[0]]
+        my_r    = list(my_vals)   + [float(my_vals[0])]
+        grp_r   = list(group_avg) + [float(group_avg[0])]
+        total_r = list(total_avg) + [float(total_avg[0])]
 
         fig_radar = go.Figure()
         fig_radar.add_trace(go.Scatterpolar(
-            r=my_r, theta=labels_r_closed,
-            fill='toself', name='내 점수',
+            r=my_r, theta=labels_r_closed, fill='toself', name='내 점수',
             line=dict(color='#4C72B0', width=2),
             fillcolor='rgba(76,114,176,0.15)',
         ))
         fig_radar.add_trace(go.Scatterpolar(
-            r=grp_r, theta=labels_r_closed,
-            fill='none', name=f'{my_lable} 평균',
+            r=grp_r, theta=labels_r_closed, fill='none', name=f'{my_lable} 평균',
             line=dict(color='#2ecc71', width=2, dash='dash'),
         ))
         fig_radar.add_trace(go.Scatterpolar(
-            r=total_r, theta=labels_r_closed,
-            fill='none', name='전체 평균',
+            r=total_r, theta=labels_r_closed, fill='none', name='전체 평균',
             line=dict(color='#f39c12', width=2, dash='dot'),
         ))
         fig_radar.update_layout(
@@ -500,19 +523,16 @@ def page_home():
         )
         st.plotly_chart(fig_radar, use_container_width=True)
 
-        # ── 상위 3개 / 하위 3개 역량 ─────────────────
+        # ── 강점 & 개발 필요 역량 ────────────────────
         st.markdown("---")
         st.subheader("🏆 나의 강점 & 개발 필요 역량")
-
-        score_series = pd.Series(comp_scores)
-        top3 = score_series.sort_values(ascending=False).head(3)
-        bot3 = score_series.sort_values(ascending=True).head(3)
 
         col_t, col_b = st.columns(2)
         with col_t:
             st.markdown("#### ✅ 상위 역량 TOP 3")
             for i, (name, val) in enumerate(top3.items(), 1):
-                diff = val - float(group_avg[list(comp_scores.keys()).index(name)])
+                idx  = list(comp_scores.keys()).index(name)
+                diff = val - float(group_avg[idx])
                 arrow = f"▲ {diff:.2f}" if diff >= 0 else f"▼ {abs(diff):.2f}"
                 color = '#2ecc71' if diff >= 0 else '#e74c3c'
                 st.markdown(
@@ -526,7 +546,8 @@ def page_home():
         with col_b:
             st.markdown("#### 🔧 개발 필요 역량 TOP 3")
             for i, (name, val) in enumerate(bot3.items(), 1):
-                diff = val - float(group_avg[list(comp_scores.keys()).index(name)])
+                idx  = list(comp_scores.keys()).index(name)
+                diff = val - float(group_avg[idx])
                 arrow = f"▲ {diff:.2f}" if diff >= 0 else f"▼ {abs(diff):.2f}"
                 color = '#2ecc71' if diff >= 0 else '#e74c3c'
                 st.markdown(
@@ -537,34 +558,24 @@ def page_home():
                 )
                 st.progress(min((val - 1) / 4, 1.0))
 
-        # 맞춤 연수 추천
+        # ── 맞춤 연수 추천 ───────────────────────────
         st.markdown("---")
-        st.subheader("📚 AI 맞춤 연수 추천")
-        
-        col_rec1, col_rec2 = st.columns([3, 1])
-        with col_rec1:
-            st.markdown("진단 결과를 바탕으로 AI가 맞춤 연수를 추천합니다.")
-        with col_rec2:
-            run_ai = st.button("🤖 AI 추천 받기", type="primary")
-        
-        # 기존 고정 추천은 항상 표시
-        st.markdown("**📋 기본 추천 연수**")
+        st.subheader("📚 맞춤 연수 추천")
+        st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
         for rec_name, rec_url in recommendations[result]:
             st.markdown(f"- [{rec_name}]({rec_url})")
-        
-        # AI 추천은 버튼 눌렀을 때만
-        if run_ai:
-            with st.spinner("AI가 맞춤 연수를 분석 중입니다..."):
-                ai_rec = get_ai_recommendation(
-                    lable=my_lable,
-                    result=result,
-                    my_total=my_total,
-                    grp_total=grp_total,
-                    top3_names=top3.index.tolist(),
-                    bot3_names=bot3.index.tolist(),
-                )
-            st.markdown("**🤖 AI 맞춤 추천 연수**")
-            st.markdown(ai_rec)
+
+        # ── 문항별 상세 점수 ─────────────────────────
+        with st.expander("📋 문항별 상세 점수 보기"):
+            detail = []
+            for comp_name, items in subcomp_items.items():
+                for code, text in items.items():
+                    detail.append({
+                        '역량': comp_name, '문항코드': code,
+                        '문항내용': text[:40] + '...' if len(text) > 40 else text,
+                        '점수': responses[code],
+                    })
+            st.dataframe(pd.DataFrame(detail), use_container_width=True)
 
 # ============================================================
 # 페이지: 내 진단 이력
@@ -599,14 +610,12 @@ def page_history():
         **{f'score_{i+1}': comp_names[i] for i in range(8)}
     }, inplace=True)
 
-    # 이력 요약
     st.subheader(f"총 {len(df)}회 진단")
     st.dataframe(
         df[['진단일시', '경력단계', '유형'] + comp_names].round(2),
         use_container_width=True
     )
 
-    # 유형 변화 그래프
     if len(df) >= 2:
         st.markdown("---")
         st.subheader("📈 역량 점수 변화")
@@ -622,12 +631,10 @@ def page_history():
                       annotation_text='기준선 (3.5)')
         fig.update_layout(
             yaxis=dict(range=[1, 5.5], title='점수'),
-            height=420,
-            plot_bgcolor='white',
+            height=420, plot_bgcolor='white',
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 최신 vs 이전 비교
         st.markdown("---")
         st.subheader("🔍 최신 vs 이전 비교")
         latest = df.iloc[0]
@@ -680,15 +687,12 @@ def page_admin():
 
     df = pd.DataFrame(rows)
 
-    # 전체 현황
     col1, col2, col3 = st.columns(3)
     col1.metric("전체 진단 수", len(df))
     col2.metric("참여 인원", df['이메일'].nunique())
     col3.metric("가장 많은 유형", df['유형'].value_counts().idxmax())
 
     st.markdown("---")
-
-    # 유형 분포
     st.subheader("📊 유형 분포")
     type_count = df['유형'].value_counts().reset_index()
     type_count.columns = ['유형', '인원']
@@ -700,18 +704,14 @@ def page_admin():
     fig.update_layout(height=350)
     st.plotly_chart(fig, use_container_width=True)
 
-    # 경력단계별 유형 분포
     st.subheader("📊 경력단계별 유형 분포")
     ct = pd.crosstab(df['경력단계'], df['유형'])
     st.dataframe(ct, use_container_width=True)
 
     st.markdown("---")
-
-    # 전체 데이터 테이블
     st.subheader("📋 전체 진단 데이터")
     st.dataframe(df, use_container_width=True)
 
-    # 엑셀 다운로드
     csv = df.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(
         label="⬇️ CSV 다운로드",

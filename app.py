@@ -7,6 +7,7 @@ import bcrypt
 import json
 from supabase import create_client
 from datetime import datetime
+import google.generativeai as genai
 
 # ============================================================
 # 기본 설정
@@ -195,6 +196,51 @@ type_desc = {
     '이해중심형': 'AI 윤리 및 개인정보·저작권 이해 역량이 상대적으로 강하나 교육과정 설계, 평가, 매체 활용 등 실천 역량 강화가 필요한 유형입니다.',
 }
 
+@st.cache_resource
+def load_gemini():
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    return genai.GenerativeModel('gemini-1.5-flash')  # 무료 티어
+
+gemini = load_gemini()
+
+def get_ai_recommendation(lable, result, my_total, 
+                           grp_total, top3_names, bot3_names):
+    prompt = f"""
+당신은 교사 AI 디지털역량 연수 전문가입니다.
+아래 교사의 진단 결과를 보고 맞춤형 연수를 추천해주세요.
+
+[진단 결과]
+- 생애주기: {lable}
+- 역량 유형: {result}
+- 나의 전체 평균: {my_total:.2f} / 5.00점
+- 집단 평균: {grp_total:.2f} / 5.00점
+- 상위 역량 (강점): {', '.join(top3_names)}
+- 하위 역량 (개발 필요): {', '.join(bot3_names)}
+
+[유형 설명]
+- 실천중심형: 매체활용·평가피드백 강함, AI윤리 약함
+- 균형형: 전 역량 고른 수준, 특정 심화 필요
+- 이해중심형: AI윤리·개인정보 강함, 실천기술 약함
+
+[요청사항]
+위 결과를 바탕으로 이 교사에게 가장 필요한 연수를 3개 추천해주세요.
+각 연수마다 아래 형식으로 작성해주세요.
+
+1. [연수명]
+   - 추천 이유: (이 교사의 진단 결과와 연결해서 구체적으로)
+   - 기대 효과: (수강 후 어떤 역량이 향상되는지)
+
+2. [연수명]
+   ...
+
+3. [연수명]
+   ...
+
+한국어로 작성하고, 실제로 존재할 법한 현실적인 연수명을 사용해주세요.
+"""
+    response = gemini.generate_content(prompt)
+    return response.text
+                               
 recommendations = {
     '실천중심형': [
         ('AI 디지털 윤리 기초 연수', 'https://www.neti.go.kr'),
@@ -491,24 +537,34 @@ def page_home():
                 )
                 st.progress(min((val - 1) / 4, 1.0))
 
-        # ── 맞춤 연수 추천 ───────────────────────────
+        # 맞춤 연수 추천
         st.markdown("---")
-        st.subheader("📚 맞춤 연수 추천")
-        st.markdown(f"**{result}** 에게 추천하는 연수 목록입니다.")
+        st.subheader("📚 AI 맞춤 연수 추천")
+        
+        col_rec1, col_rec2 = st.columns([3, 1])
+        with col_rec1:
+            st.markdown("진단 결과를 바탕으로 AI가 맞춤 연수를 추천합니다.")
+        with col_rec2:
+            run_ai = st.button("🤖 AI 추천 받기", type="primary")
+        
+        # 기존 고정 추천은 항상 표시
+        st.markdown("**📋 기본 추천 연수**")
         for rec_name, rec_url in recommendations[result]:
             st.markdown(f"- [{rec_name}]({rec_url})")
-
-        # ── 문항별 상세 점수 ─────────────────────────
-        with st.expander("📋 문항별 상세 점수 보기"):
-            detail = []
-            for comp_name, items in subcomp_items.items():
-                for code, text in items.items():
-                    detail.append({
-                        '역량': comp_name, '문항코드': code,
-                        '문항내용': text[:40] + '...' if len(text) > 40 else text,
-                        '점수': responses[code],
-                    })
-            st.dataframe(pd.DataFrame(detail), use_container_width=True)
+        
+        # AI 추천은 버튼 눌렀을 때만
+        if run_ai:
+            with st.spinner("AI가 맞춤 연수를 분석 중입니다..."):
+                ai_rec = get_ai_recommendation(
+                    lable=my_lable,
+                    result=result,
+                    my_total=my_total,
+                    grp_total=grp_total,
+                    top3_names=top3.index.tolist(),
+                    bot3_names=bot3.index.tolist(),
+                )
+            st.markdown("**🤖 AI 맞춤 추천 연수**")
+            st.markdown(ai_rec)
 
 # ============================================================
 # 페이지: 내 진단 이력

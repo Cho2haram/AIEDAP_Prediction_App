@@ -44,7 +44,7 @@ model = load_model()
 @st.cache_resource
 def load_gemini():
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-2.0-flash')
 
 gemini = load_gemini()
 
